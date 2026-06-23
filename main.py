@@ -6,6 +6,7 @@
 
 from pathlib import Path
 from services.database import database_connect
+from services.helpers import json_serializer
 from mysql.connector.connection import MySQLConnection
 
 import json
@@ -47,7 +48,14 @@ def application(environ, start_response):
 
         elif path == '/users':
             users = get_users(database)
-            body = json.dumps(users).encode('utf-8')
+
+            # from pprint import pprint
+            # pprint(users)
+
+            body = json.dumps(
+                users,
+                default=json_serializer
+            ).encode("utf-8")
             content_type = 'application/json'
 
         else:
