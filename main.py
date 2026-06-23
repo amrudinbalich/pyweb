@@ -1,34 +1,86 @@
-# This is a sample Python script.
+# mental map
+# request -> nginx ->
+# -> gunicorn (input) -> app code (custom/django/flask) -> gunicorn (output)
 
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
+# note: Gunicorn is built on top of WSGI definition
 
-# error reporting
+from pathlib import Path
+from services.database import database_connect
+from services.helpers import json_serializer
+from mysql.connector.connection import MySQLConnection
 
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from helpers import view
-import logging
 import json
 
-logging.basicConfig(level=logging.DEBUG)
+BASE_DIR = Path(__file__).resolve().parent
 
-class CustomHTTPHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Type:', 'text/html; charset=utf-8')
-        self.end_headers()
-        self.wfile.write(view('index'))
+def read_view(name):
+    return (BASE_DIR / "resources" / "views" / name).read_bytes()
 
-    def do_POST(self):
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length)
-        # Process post_data here...
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({"status": "POST received"}).encode("utf-8"))
+def get_users(database: MySQLConnection):
+    cursor = database.cursor(dictionary=True)
+
+    try:
+        q = 'SELECT * FROM users'
+        cursor.execute(q)
+        return cursor.fetchall()
+    finally:
+        cursor.close()
 
 
-if __name__ == '__main__':
-    s =  HTTPServer(('127.0.0.1', 8080), CustomHTTPHandler)
-    s.serve_forever()
+# WSGI interface contract - Gunicorn calls it -> boot the app code
+def application(environ, start_response):
+    database = None
+
+    try:
+        database = database_connect()
+
+        path = environ.get('PATH_INFO', '/')
+        request_method = environ['REQUEST_METHOD']
+
+        status = '200 OK'
+        content_type = 'text/html'
+
+        if path == '/' and request_method == 'GET':
+            body = read_view('index.html')
+
+        elif path == '/about':
+            body = b'About page'
+
+        elif path == '/users':
+            users = get_users(database)
+
+            # from pprint import pprint
+            # pprint(users)
+
+            body = json.dumps(
+                users,
+                default=json_serializer
+            ).encode("utf-8")
+            content_type = 'application/json'
+
+        else:
+            body = b'404 Not Found'
+            status = '404 Not Found'
+            content_type = 'text/plain'
+
+        headers = [
+            ('Content-Type', content_type),
+            ('Content-Length', str(len(body)))
+        ]
+
+        start_response(status, headers)
+        return [body]
+
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+
+        start_response(
+            '500 Internal Server Error',
+            [('Content-Type', 'text/plain')]
+        )
+        return [str(e).encode()]
+
+    finally:
+        if database:
+            database.close()

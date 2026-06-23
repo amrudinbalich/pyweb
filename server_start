@@ -1,0 +1,5 @@
+start the server: gunicorn main:application
+
+gunicorn main:application --log-level debug --capture-output
+
+gunicorn main:application --reload --log-level debug
